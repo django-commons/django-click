@@ -4,8 +4,8 @@ Support click in Django management commands.
 
 import click
 from click import *  # NOQA
-from .adapter import CommandRegistrator as command  # NOQA
-from .adapter import GroupRegistrator as group, pass_verbosity  # NOQA
+from .adapter import CommandRegistrator as command  # type: ignore[no-redef]  # NOQA: E501
+from .adapter import GroupRegistrator as group, pass_verbosity  # type: ignore[no-redef]  # NOQA: E501
 
 # The RegEx in setup.py requires single quotes. Rather than change it, turn off Black.
 # fmt: off
