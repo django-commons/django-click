@@ -284,3 +284,8 @@ def test_group_command(capsys):
     execute_from_command_line(["./manage.py", "groupcmd", "subcmd3"])
     out, err = capsys.readouterr()
     assert out == "group_command\nSUB2\n"
+
+
+def test_py_typed_present():
+    py_typed = os.path.join(os.path.dirname(djclick.__file__), "py.typed")
+    assert os.path.exists(py_typed)

@@ -1,50 +1,62 @@
+from __future__ import annotations
+
 import contextlib
 import os
 import sys
 from functools import update_wrapper
+from typing import (
+    Any,
+    Callable,
+    Generator,
+    Sequence,
+    TypeVar,
+)
 
 import click
 
 from django import get_version
 from django.core.management import CommandError
 
+F = TypeVar("F", bound=Callable[..., Any])
+
 
 class ArgumentParserDefaults:
-    def __init__(self, args):
+    def __init__(self, args: Sequence[str]) -> None:
         self._args = args
 
-    def _get_kwargs(self):
+    def _get_kwargs(self) -> dict[str, Any]:
         return {
             "args": self._args,
         }
 
 
 class ArgumentParserAdapter:
-    def __init__(self):
-        self._actions = []
-        self._mutually_exclusive_groups = []
+    def __init__(self) -> None:
+        self._actions: list[Any] = []
+        self._mutually_exclusive_groups: list[Any] = []
 
-    def parse_args(self, args):
+    def parse_args(self, args: Sequence[str]) -> ArgumentParserDefaults:
         return ArgumentParserDefaults(args)
 
 
 class DjangoCommandMixin:
-    use_argparse = False
-    option_list = []
-    base_stealth_options = ["stderr", "stdout"]
+    use_argparse: bool = False
+    option_list: list[Any] = []
+    base_stealth_options: list[str] = ["stderr", "stdout"]
+    params: list[click.Parameter]
 
     @property
-    def stealth_options(self):
+    def stealth_options(self) -> list[str]:
         return sum(
             ([p.name] + [i.lstrip("-") for i in p.opts] for p in self.params), [],
         )
 
-    def invoke(self, ctx):
+    def invoke(self, ctx: click.Context) -> Any:
         try:
-            return super().invoke(ctx)
+            return super().invoke(ctx)  # type: ignore[misc]
         except CommandError as e:
             # Honor the --traceback flag
-            if ctx.traceback:  # NOCOV
+            if getattr(ctx, "traceback", False):  # NOCOV
                 raise
             styled_message = click.style(
                 f"{e.__class__.__name__}: {e}", fg="red", bold=True
@@ -52,20 +64,21 @@ class DjangoCommandMixin:
             click.echo(styled_message, err=True)
             ctx.exit(1)
 
-    def run_from_argv(self, argv):
+    def run_from_argv(self, argv: Sequence[str]) -> None:
         """
         Called when run from the command line.
         """
         prog_name = f"{os.path.basename(argv[0])} {argv[1]}"
         try:
             # We won't get an exception here in standalone_mode=False
-            exit_code = self.main(
+            exit_code = self.main(  # type: ignore[attr-defined]
                 args=argv[2:], prog_name=prog_name, standalone_mode=False
             )
             if exit_code:
                 sys.exit(exit_code)
         except click.ClickException as e:
-            if getattr(e, "ctx", False) and getattr(e.ctx, "traceback", False):  # NOCOV
+            e_ctx = getattr(e, "ctx", None)
+            if e_ctx and getattr(e_ctx, "traceback", False):  # NOCOV
                 raise
             e.show()
             sys.exit(e.exit_code)
@@ -76,22 +89,24 @@ class DjangoCommandMixin:
             click.echo("Aborted!", file=sys.stderr)
             sys.exit(1)
 
-    def create_parser(self, progname, subcommand):
+    def create_parser(self, progname: str, subcommand: str) -> ArgumentParserAdapter:
         """
         Called when run through `call_command`.
         """
         return ArgumentParserAdapter()
 
-    def print_help(self, prog_name, subcommand):
-        prog_name = f"{prog_name} {subcommand}"
-        self.main(["--help"], prog_name=prog_name, standalone_mode=False)
+    def print_help(self, prog_name: str, subcommand: str) -> None:
+        full_prog_name = f"{prog_name} {subcommand}"
+        self.main(  # type: ignore[attr-defined]
+            ["--help"], prog_name=full_prog_name, standalone_mode=False
+        )
 
-    def map_names(self):
+    def map_names(self) -> Generator[tuple[str, str | None], None, None]:
         for param in self.params:
             for opt in param.opts:
                 yield opt.lstrip("--").replace("-", "_"), param.name
 
-    def execute(self, *args, **kwargs):
+    def execute(self, *args: Any, **kwargs: Any) -> Any:
         """
         Called when run through `call_command`. `args` are passed through,
         while `kwargs` is the __dict__ of the return value of
@@ -107,7 +122,9 @@ class DjangoCommandMixin:
         stdout = kwargs.pop("stdout", None)
         stderr = kwargs.pop("stderr", None)
         parent_ctx = click.get_current_context(silent=True)
-        with self.make_context("", list(args), parent=parent_ctx) as ctx:
+        with self.make_context(  # type: ignore[attr-defined]
+            "", list(args), parent=parent_ctx
+        ) as ctx:
             # Rename kwargs to to the appropriate destination argument name
             opt_mapping = dict(self.map_names())
             arg_options = {
@@ -123,9 +140,9 @@ class DjangoCommandMixin:
                     stack.enter_context(contextlib.redirect_stdout(stdout))
                 if stderr is not None:
                     stack.enter_context(contextlib.redirect_stderr(stderr))
-                self.invoke(ctx)
+                return self.invoke(ctx)
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
         """
         When invoked, normal click commands act as entry points for command
         line execution. When using Django, commands get invoked either through
@@ -145,12 +162,12 @@ class GroupAdapter(DjangoCommandMixin, click.Group):
     pass
 
 
-def register_on_context(ctx, param, value):
-    setattr(ctx, param.name, value)
+def register_on_context(ctx: click.Context, param: click.Parameter, value: Any) -> Any:
+    setattr(ctx, param.name, value)  # type: ignore[arg-type]
     return value
 
 
-def suppress_colors(ctx, param, value):
+def suppress_colors(ctx: click.Context, param: click.Parameter, value: Any) -> Any:
     # Only set the value if a flag was provided, otherwise we would override
     # the default set by the parent context if one was available.
     if value is not None:
@@ -159,6 +176,9 @@ def suppress_colors(ctx, param, value):
 
 
 class BaseRegistrator:
+    cls: type[click.Command]
+    name: str
+
     common_options = [
         click.option(
             "-v",
@@ -212,15 +232,15 @@ class BaseRegistrator:
         ),
     ]
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         self.kwargs = kwargs
-        self.version = self.kwargs.pop("version", get_version())
+        self.version: str = self.kwargs.pop("version", get_version())
 
         context_settings = kwargs.setdefault("context_settings", {})
         context_settings["help_option_names"] = ["-h", "--help"]
 
-    def get_params(self, name):
-        def show_help(ctx, param, value):
+    def get_params(self, name: str) -> list[Callable[[F], F]]:
+        def show_help(ctx: click.Context, param: click.Parameter, value: Any) -> None:
             if value and not ctx.resilient_parsing:
                 click.echo(ctx.get_help(), color=ctx.color)
                 ctx.exit()
@@ -238,7 +258,7 @@ class BaseRegistrator:
             ),
         ] + self.common_options
 
-    def __call__(self, func):
+    def __call__(self, func: F) -> F:
         module = sys.modules[func.__module__]
 
         # Get the command name as Django expects it
@@ -255,21 +275,21 @@ class BaseRegistrator:
         # Django expects the command to be callable (it instantiates the class
         # pointed at by the `Command` module-level property)...
         # ...let's make it happy.
-        module.Command = lambda: func
+        setattr(module, "Command", lambda: func)
 
         return func
 
 
-def pass_verbosity(f):
+def pass_verbosity(f: F) -> F:
     """
     Marks a callback as wanting to receive the verbosity as a keyword argument.
     """
 
-    def new_func(*args, **kwargs):
-        kwargs["verbosity"] = click.get_current_context().verbosity
+    def new_func(*args: Any, **kwargs: Any) -> Any:
+        kwargs["verbosity"] = getattr(click.get_current_context(), "verbosity", None)
         return f(*args, **kwargs)
 
-    return update_wrapper(new_func, f)
+    return update_wrapper(new_func, f)  # type: ignore[return-value]
 
 
 class CommandRegistrator(BaseRegistrator):
